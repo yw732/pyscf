@@ -1098,11 +1098,12 @@ def kernel(mf, conv_tol=1e-10, conv_tol_grad=None,
 
         cput2 = logger.timer(mf, 'cycle= %d-diis'%(cycle+1), *cput2)
 
-        pos_err = neo.diis_util.get_pos_err(mf, fock, s1e)
+        if isinstance(mf, neo.CDFT):
+            pos_err = neo.diis_util.get_pos_err(mf, fock, s1e)
         if diis_buffer is not None:
-            diis_buffer['pos_err'].append([cycle, abs(pos_err).max()])
-            diis_buffer['f'].append(mf.f.copy())
-        # pos_converged = abs(pos_err).max() < 1e-15
+            if isinstance(mf, neo.CDFT):
+                diis_buffer['pos_err'].append([cycle, abs(pos_err).max()])
+                diis_buffer['f'].append(mf.f.copy())
 
         mo_energy, mo_coeff = mf.eig(fock, s1e)
         cput2 = logger.timer(mf, 'cycle= %d-eig'%(cycle+1), *cput2)
@@ -1131,8 +1132,8 @@ def kernel(mf, conv_tol=1e-10, conv_tol_grad=None,
         norm_ddm = {}
         for t in dm.keys():
             norm_ddm[t] = numpy.linalg.norm(dm[t]-dm_last[t])
-        logger.info(mf, 'cycle= %d E= %.15g  delta_E= %4.3g  |g_e|= %4.3g  |ddm_e|= %4.3g  max|pos_err|=%4.3g',
-                    cycle+1, e_tot, e_tot-last_hf_e, norm_gorb['e'], norm_ddm['e'], abs(pos_err).max())
+        logger.info(mf, 'cycle= %d E= %.15g  delta_E= %4.3g  |g_e|= %4.3g  |ddm_e|= %4.3g',
+                    cycle+1, e_tot, e_tot-last_hf_e, norm_gorb['e'], norm_ddm['e'])
         for t in grad.keys():
             if not t.startswith('e'):
                 log.info(f'    |g_{t}|= %4.3g  |ddm_{t}|= %4.3g', norm_gorb[t], norm_ddm[t])

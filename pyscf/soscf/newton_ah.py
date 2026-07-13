@@ -532,6 +532,8 @@ def kernel(mf, mo_coeff=None, mo_occ=None, dm=None,
     kftot = jktot = 0
     norm_gorb = 0.
     cput1 = log.timer('initializing second order scf', *cput0)
+    mf._soscf_buffer = {}
+    mf._soscf_buffer['scf_energy'] = []
 
     for imacro in range(max_cycle):
         u, g_orb, kfcount, jkcount, dm_last, vhf = \
@@ -556,6 +558,7 @@ def kernel(mf, mo_coeff=None, mo_occ=None, dm=None,
                  imacro, e_tot, e_tot-last_hf_e, norm_gorb,
                  kfcount+1, jkcount)
         cput1 = log.timer('cycle= %d'%(imacro+1), *cput1)
+        mf._soscf_buffer['scf_energy'].append([imacro, e_tot])
 
         if callable(mf.check_convergence):
             scf_conv = mf.check_convergence(locals())
@@ -583,6 +586,8 @@ def kernel(mf, mo_coeff=None, mo_occ=None, dm=None,
             mf.dump_chk(locals())
     log.info('macro X = %d  E=%.15g  |g|= %g  total %d KF %d JK',
              imacro+1, e_tot, norm_gorb, kftot+1, jktot+1)
+
+    mf._soscf_buffer['scf_energy'].append([-1, e_tot])
 
     homo = lumo = None
     if isinstance(mf, dhf.DHF):
@@ -658,6 +663,7 @@ class _CIAH_SOSCF:
     def __init__(self, mf):
         self.__dict__.update(mf.__dict__)
         self._scf = mf
+        self._soscf_buffer = None
 
     def undo_soscf(self):
         '''Remove the SOSCF Mixin'''
