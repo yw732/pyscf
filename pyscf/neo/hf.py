@@ -923,14 +923,15 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1,
                 errvec_n = []
                 for t in sorted(s1e.keys()):
                     if t.startswith('e'):
-                        errvec_e = scf.diis.get_err_vec(s1e[t], dm[t], f[t])
+                        errvec_e = scf.diis.get_err_vec(s1e[t], dm[t], f[t], diis.Corth[t])
                     else:
-                        errvec_n.append(scf.diis.get_err_vec(s1e[t], dm[t], f[t]))
+                        errvec_n.append(scf.diis.get_err_vec(s1e[t], dm[t], f[t], diis.Corth[t]))
 
                 errvec_n = numpy.concatenate(errvec_n)
                 err_fock = numpy.concatenate((errvec_e, errvec_n))
                 # err_fock = scf.diis.get_err_vec(s1e, dm, f)
-                f_flat = diis.update(f_flat, err_fock)
+                # f_flat = diis.update(f_flat, err_fock)
+                f_flat = lib.diis.DIIS.update(diis, f_flat, err_fock)
                 if diis_buffer is not None:
                     diis_buffer['diis_err'].append([cycle, abs(errvec_e).max(), abs(errvec_n).max()])
 
@@ -938,13 +939,14 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1,
                 errvec_n = []
                 for t in sorted(s1e.keys()):
                     if t.startswith('e'):
-                        errvec_e = scf.diis.get_err_vec(s1e[t], dm[t], f[t])
+                        errvec_e = scf.diis.get_err_vec(s1e[t], dm[t], f[t], diis.Corth[t])
                     else:
-                        errvec_n.append(scf.diis.get_err_vec(s1e[t], dm[t], f[t]))
+                        errvec_n.append(scf.diis.get_err_vec(s1e[t], dm[t], f[t], diis.Corth[t]))
 
                 errvec_n = numpy.concatenate(errvec_n)
                 err_pos = neo.diis_util.get_pos_err(mf, f, s1e) * mf.error_scale
-                f_flat = diis.update(f_flat, numpy.concatenate((errvec_e, errvec_n, err_pos)))
+                # f_flat = diis.update(f_flat, numpy.concatenate((errvec_e, errvec_n, err_pos)))
+                f_flat = lib.diis.DIIS.update(diis, f_flat, numpy.concatenate((errvec_e, errvec_n, err_pos)))
 
                 if diis_buffer is not None:
                     diis_buffer['diis_err'].append([cycle, abs(errvec_e).max(),
@@ -1092,11 +1094,11 @@ def kernel(mf, conv_tol=1e-10, conv_tol_grad=None,
 
         cput2 = (logger.process_clock(), logger.perf_counter())
 
-        fock = mf.get_fock(h1e, s1e, vhf, vint, dm, cycle, mf_diis,
+        fock = mf.get_fock(h1e, s1e, vhf, dm, cycle, mf_diis,
                            fock_last=fock_last, diis_type=mf.diis_type,
                            diis_pos=mf.diis_pos, diis_buffer=diis_buffer)
 
-        cput2 = logger.timer(mf, 'cycle= %d-diis'%(cycle+1), *cput2)
+        # cput2 = logger.timer(mf, 'cycle= %d-diis'%(cycle+1), *cput2)
 
         if isinstance(mf, neo.CDFT):
             pos_err = neo.diis_util.get_pos_err(mf, fock, s1e)
@@ -1105,15 +1107,15 @@ def kernel(mf, conv_tol=1e-10, conv_tol_grad=None,
                 diis_buffer['pos_err'].append([cycle, abs(pos_err).max()])
                 diis_buffer['f'].append(mf.f.copy())
 
-        mo_energy, mo_coeff = mf.eig(fock, s1e)
-        cput2 = logger.timer(mf, 'cycle= %d-eig'%(cycle+1), *cput2)
+        mo_energy, mo_coeff = mf.eig(fock, s1e, x=x_orth)
+        # cput2 = logger.timer(mf, 'cycle= %d-eig'%(cycle+1), *cput2)
         mo_occ = mf.get_occ(mo_energy, mo_coeff)
         dm = mf.make_rdm1(mo_coeff, mo_occ)
-        vint = mf.get_vint(mol, dm)
-        cput2 = logger.timer(mf, 'cycle= %d-vint'%(cycle+1), *cput2)
+        # vint = mf.get_vint(mol, dm)
+        # cput2 = logger.timer(mf, 'cycle= %d-vint'%(cycle+1), *cput2)
         vhf = mf.get_veff(mol, dm, dm_last, vhf)
-        cput2 = logger.timer(mf, 'cycle= %d-vhf'%(cycle+1), *cput2)
-        e_tot = mf.energy_tot(dm, h1e, vhf, vint)
+        # cput2 = logger.timer(mf, 'cycle= %d-vhf'%(cycle+1), *cput2)
+        e_tot = mf.energy_tot(dm, h1e, vhf)
 
         # Here Fock matrix is h1e + vhf, without DIIS.  Calling get_fock
         # instead of the statement "fock = h1e + vhf" because Fock matrix may
@@ -1122,7 +1124,7 @@ def kernel(mf, conv_tol=1e-10, conv_tol_grad=None,
         skip_constraint = False
         if mf.diis_type == 4:
             skip_constraint = True
-        fock = mf.get_fock(h1e, s1e, vhf, vint, dm, skip_constraint=skip_constraint)  # = h1e + vhf + vint, no DIIS
+        fock = mf.get_fock(h1e, s1e, vhf, dm, skip_constraint=skip_constraint)  # = h1e + vhf + vint, no DIIS
         grad = mf.get_grad(mo_coeff, mo_occ, fock)
         norm_gorb = {}
         for t in grad.keys():
