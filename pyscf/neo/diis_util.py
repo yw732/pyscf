@@ -25,7 +25,14 @@ def update_f(mf, fock0, s1e, nsteps, tol=1e-15):
         if t.startswith('n'):
             ia = comp.mol.atom_index
             def residual(f_lagrange):
-                fock = fock0[t] + numpy.einsum('xij,x->ij', comp.int1e_r, f_lagrange)
+                fock = (
+                    fock0[t]
+                    + numpy.einsum(
+                        'xij,x->ij',
+                        comp.int1e_r,
+                        f_lagrange,
+                    )
+                )
                 return get_deviation(comp, fock, s1e[t])
 
             def residual_vectorize(x):
@@ -34,30 +41,82 @@ def update_f(mf, fock0, s1e, nsteps, tol=1e-15):
                 if x.ndim == 1:
                     return residual(x)
 
-                return numpy.apply_along_axis(residual, axis=0, arr=x)
+                return numpy.apply_along_axis(
+                    residual,
+                    axis=0,
+                    arr=x,
+                )
 
-            f0 = mf.f[ia]
+            f0 = mf.f[ia].copy()
             r0 = residual(f0)
+
+            # Record f when the residual first becomes smaller than tol.
+            # The Newton update will continue instead of stopping.
+            f_below_tol = None
+            below_tol_step = None
 
             for istep in range(nsteps):
 
-                if abs(r0).max() < tol:
-                    logger.debug(mf, f'DIIS type 4: Newton step converged at step {istep}')
-                    break
+                if abs(r0).max() < tol and f_below_tol is None:
+                    f_below_tol = f0.copy()
+                    below_tol_step = istep
 
-                res = scipy.differentiate.jacobian(residual_vectorize, f0, maxiter=1,
-                                                   order=2, initial_step=1e-3)
+                    logger.info(
+                        mf,
+                        'DIIS type 4: residual below %.3e at Newton '
+                        'step %d; continuing the update. '
+                        'max|r| = %.6e',
+                        tol,
+                        istep,
+                        abs(r0).max(),
+                    )
+
+                res = scipy.differentiate.jacobian(
+                    residual_vectorize,
+                    f0,
+                    maxiter=1,
+                    order=2,
+                    initial_step=1e-3,
+                )
                 J = res.df
 
                 g0 = numpy.sqrt(numpy.dot(r0, r0))
 
                 try:
                     df = numpy.linalg.solve(J, -r0)
+
                 except numpy.linalg.LinAlgError:
-                    df = numpy.linalg.lstsq(J, -r0, rcond=None)[0]
+                    det_J = numpy.linalg.det(J)
+
+                    df, lstsq_residuals, rank, singular_values = (
+                        numpy.linalg.lstsq(
+                            J,
+                            -r0,
+                            rcond=None,
+                        )
+                    )
+
+                    # Check whether the least-squares solution satisfies
+                    # J @ df = -r0.
+                    lstsq_error = numpy.dot(J, df) + r0
+
+                    logger.warn(
+                        mf,
+                        'DIIS type 4: numpy.linalg.solve failed for '
+                        'nucleus %d at Newton step %d; using lstsq.\n'
+                        '  det(J) = %.6e\n'
+                        '  rank(J) = %d\n'
+                        '  max|J df + r0| = %.6e\n'
+                        '  ||J df + r0||_2 = %.6e',
+                        ia,
+                        istep,
+                        det_J,
+                        rank,
+                        abs(lstsq_error).max(),
+                        numpy.linalg.norm(lstsq_error),
+                    )
 
                 df_norm = numpy.linalg.norm(df)
-
 
                 step = 1.0
                 f_trial = f0 + step * df
@@ -81,6 +140,25 @@ def update_f(mf, fock0, s1e, nsteps, tol=1e-15):
                 # Final update
                 f0 = f_trial
                 r0 = r1
+
+            # Report how much f changed after the residual first became
+            # smaller than tol.
+            if f_below_tol is not None:
+                f_change = f0 - f_below_tol
+
+                logger.info(
+                    mf,
+                    'DIIS type 4: final f change after residual first '
+                    'fell below %.3e at Newton step %d:\n'
+                    '  max|delta f| = %.6e\n'
+                    '  ||delta f||_2 = %.6e\n'
+                    '  final max|r| = %.6e',
+                    tol,
+                    below_tol_step,
+                    abs(f_change).max(),
+                    numpy.linalg.norm(f_change),
+                    abs(r0).max(),
+                )
 
             mf.f[ia] = f0
 
