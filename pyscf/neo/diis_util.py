@@ -50,16 +50,9 @@ def update_f(mf, fock0, s1e, nsteps, tol=1e-15):
             f0 = mf.f[ia].copy()
             r0 = residual(f0)
 
-            # Record f when the residual first becomes smaller than tol.
-            # The Newton update will continue instead of stopping.
-            f_below_tol = None
-            below_tol_step = None
-
             for istep in range(nsteps):
 
-                if abs(r0).max() < tol and f_below_tol is None:
-                    f_below_tol = f0.copy()
-                    below_tol_step = istep
+                if abs(r0).max() < tol:
 
                     logger.info(
                         mf,
@@ -70,6 +63,7 @@ def update_f(mf, fock0, s1e, nsteps, tol=1e-15):
                         istep,
                         abs(r0).max(),
                     )
+                    break
 
                 res = scipy.differentiate.jacobian(
                     residual_vectorize,
@@ -140,25 +134,6 @@ def update_f(mf, fock0, s1e, nsteps, tol=1e-15):
                 # Final update
                 f0 = f_trial
                 r0 = r1
-
-            # Report how much f changed after the residual first became
-            # smaller than tol.
-            if f_below_tol is not None:
-                f_change = f0 - f_below_tol
-
-                logger.info(
-                    mf,
-                    'DIIS type 4: final f change after residual first '
-                    'fell below %.3e at Newton step %d:\n'
-                    '  max|delta f| = %.6e\n'
-                    '  ||delta f||_2 = %.6e\n'
-                    '  final max|r| = %.6e',
-                    tol,
-                    below_tol_step,
-                    abs(f_change).max(),
-                    numpy.linalg.norm(f_change),
-                    abs(r0).max(),
-                )
 
             mf.f[ia] = f0
 
