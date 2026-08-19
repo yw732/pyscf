@@ -31,7 +31,6 @@ from pyscf import lib
 from pyscf.data import nist
 from pyscf.lib import logger
 from pyscf.scf import diis
-from pyscf.scf.diis import get_err_vec
 from pyscf.scf import _vhf
 from pyscf.scf import chkfile
 from pyscf.scf import dispersion
@@ -158,11 +157,6 @@ Keyword argument "init_dm" is replaced by "dm0"''')
     else:
         mf_diis = None
 
-    # if mf_diis is not None:
-    #     diis_buffer = {}
-    #     diis_buffer['scf_energy'] = []
-    #     diis_buffer['diis_err'] = []
-
     if dump_chk and mf.chkfile:
         # Explicit overwrite the mol object in chkfile
         # Note in pbc.scf, mf.mol == mf.cell, cell is saved under key "mol"
@@ -208,9 +202,7 @@ Keyword argument "init_dm" is replaced by "dm0"''')
         if callable(callback):
             callback(locals())
 
-        cput1 = logger.timer(mf, 'cycle= %d'%(cycle+1), *cput1)
-        # if diis_buffer is not None:
-        #     diis_buffer['scf_energy'].append([cycle, e_tot])
+        cput1 = log.timer('cycle= %d'%(cycle+1), *cput1)
 
         if scf_conv:
             break
@@ -244,8 +236,7 @@ Keyword argument "init_dm" is replaced by "dm0"''')
         if dump_chk and mf.chkfile:
             mf.dump_chk(locals())
 
-    logger.timer(mf, 'scf_cycle', *cput0)
-    # mf._diis_buffer = diis_buffer
+    log.timer('scf_cycle', *cput0)
     # A post-processing hook before return
     mf.post_kernel(locals())
     return scf_conv, e_tot, mo_energy, mo_coeff, mo_occ
@@ -1150,9 +1141,6 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1, diis=None,
     if 0 <= cycle < diis_start_cycle-1 and abs(damp_factor) > 1e-4 and fock_last is not None:
         f = damping(f, fock_last, damp_factor)
     if diis is not None and cycle >= diis_start_cycle:
-        errvec = get_err_vec(s1e, dm, f)
-        # if diis_buffer is not None:
-        #     diis_buffer['diis_err'].append([cycle, abs(errvec).max()])
         f = diis.update(s1e, dm, f, mf, h1e, vhf, f_prev=fock_last)
     if abs(level_shift_factor) > 1e-4:
         f = level_shift(s1e, dm*.5, f, level_shift_factor)
@@ -1815,7 +1803,6 @@ class SCF(lib.StreamObject):
 
         self._opt = {None: None}
         self._eri = None # Note: self._eri requires large amount of memory
-        # self._diis_buffer = None
 
     __getstate__, __setstate__ = lib.generate_pickle_methods(
             excludes=('chkfile', '_chkfile', '_opt', '_eri', 'callback'))
