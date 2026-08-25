@@ -2074,7 +2074,8 @@ class _DFNEO:
 
 
 if __name__ == '__main__':
-    def run_df_ne_error_case(name, mf_factory, auxbasis, ee_only_dfj=False):
+    def run_df_ne_error_case(name, mf_factory, auxbasis, ee_only_dfj=False,
+                             include_df_nn=False):
         cases = [
             ('Exact ERI', mf_factory()),
             ('DF ee only',
@@ -2089,6 +2090,12 @@ if __name__ == '__main__':
                                       df_ne_scheme='global',
                                       ee_only_dfj=ee_only_dfj)),
         ]
+        if include_df_nn:
+            cases.append(
+                ('DF ee+en+nn global aug_etb',
+                 mf_factory().density_fit(auxbasis=auxbasis, df_ne=True,
+                                          df_nn=True, df_ne_scheme='global',
+                                          ee_only_dfj=ee_only_dfj)))
 
         for label, mf in cases:
             mf.conv_tol = 1e-10
@@ -2097,12 +2104,12 @@ if __name__ == '__main__':
         e_ref = results[0][1]
 
         print(f'\n{name}')
-        print(f'  {"method":25s} {"energy":>18s} {"dE":>12s}')
+        print(f'  {"method":29s} {"energy":>18s} {"dE":>12s}')
         for label, energy in results:
             if label == 'Exact ERI':
-                print(f'  {label:25s} {energy:18.12f} {"--":>12s}')
+                print(f'  {label:29s} {energy:18.12f} {"--":>12s}')
             else:
-                print(f'  {label:25s} {energy:18.12f} {energy - e_ref:12.4e}')
+                print(f'  {label:29s} {energy:18.12f} {energy - e_ref:12.4e}')
 
     run_df_ne_error_case('HF/NEO-HF/def2SVP/weigend, ee_only_dfj=False',
         lambda: neo.HF(neo.M(atom='H 0 0 0; F 0 0 1',
@@ -2122,10 +2129,10 @@ if __name__ == '__main__':
         lambda: neo.KS(neo.M(atom=h3p_atom, basis='ccpvdz', charge=1,
                              quantum_nuc=['H'], verbose=0),
                        xc='camb3lyp'),
-        'cc-pvdz-jkfit')
+        'cc-pvdz-jkfit', include_df_nn=True)
 
-    run_df_ne_error_case('H3+/CNEO-CAM-B3LYP/occ-pvdz/cc-pvdz-jkfit, ee_only_dfj=True',
+    run_df_ne_error_case('H3+/CNEO-CAM-B3LYP/cc-pvdz/cc-pvdz-jkfit, ee_only_dfj=True',
         lambda: neo.KS(neo.M(atom=h3p_atom, basis='ccpvdz', charge=1,
                              quantum_nuc=['H'], verbose=0),
                        xc='camb3lyp'),
-        'cc-pvdz-jkfit', ee_only_dfj=True)
+        'cc-pvdz-jkfit', ee_only_dfj=True, include_df_nn=True)
