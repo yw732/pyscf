@@ -1657,15 +1657,16 @@ class HF(scf.hf.SCF):
         vint_full, vint_delta = _init_vint_full_delta(self.components,
                                                       vhf_last,
                                                       incremental_j)
-        if incremental_j:
-            ddm = {}
-            for t, dm_ in dm.items():
-                dm_ = numpy.asarray(dm_)
-                dm_last_ = numpy.asarray(dm_last[t])
-                assert dm_last_.ndim == 0 or dm_last_.ndim == dm_.ndim
-                ddm[t] = dm_ - dm_last_
+        ddm = None
         for t_pair, interaction in self.interactions.items():
             incremental_vint = interaction._is_direct_vint()
+            if incremental_vint and incremental_j and ddm is None:
+                ddm = {}
+                for t, dm_ in dm.items():
+                    dm_ = numpy.asarray(dm_)
+                    dm_last_ = numpy.asarray(dm_last[t])
+                    assert dm_last_.ndim == 0 or dm_last_.ndim == dm_.ndim
+                    ddm[t] = dm_ - dm_last_
             v = interaction.get_vint(ddm if incremental_vint and incremental_j
                                      else dm, **kwargs)
             _accumulate_vint(vint_full, vint_delta, v, t_pair,
