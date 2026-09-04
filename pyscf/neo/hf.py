@@ -832,7 +832,7 @@ def generate_interactions(components, interaction_class, max_memory,
 
 def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1,
              diis=None, diis_start_cycle=None, level_shift_factor=None,
-             damp_factor=None, fock_last=None, diis_pos='both', diis_type=3,
+             damp_factor=None, fock_last=None, diis_pos='both', diis_type=4,
              constraint_update=True):
     if h1e is None: h1e = mf.get_hcore()
     if vhf is None: vhf = mf.get_veff(mf.mol, dm)
@@ -846,35 +846,12 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1,
     # NOTE: even if not using DIIS, we still optimize f.
     # This helps with final extra cycle convergence.
     f0 = None
+    position_error = None
     if isinstance(mf, neo.CDFT):
         if diis_pos == 'pre' or diis_pos == 'both' or (cycle < 0 and diis is None):
             if constraint_update:
-                if diis_type == 4:
-                    neo.cdft.update_lagrange_multipliers(
-                        mf, f, s1e, mf.constraint_max_cycle
-                    )
-                else:
-                    # optimize the Lagrange multiplier in CNEO
-                    for t, comp in mf.components.items():
-                        if t.startswith('n'):
-                            ia = comp.mol.atom_index
-                            opt = neo.cdft.solve_constraint(
-                                comp, f[t], s1e[t], mf.f[ia],
-                                jacobian_gap_tol=mf.constraint_jacobian_gap_tol,
-                            )
-                            mf.f[ia] = opt.x
-                            if opt.success:
-                                logger.debug(mf, 'CNEO NUC constraint optimization succeeded.')
-                                logger.debug(mf, 'Lagrange multiplier of %s(%i) atom: %s' %
-                                             (mf.mol.atom_symbol(ia), ia, mf.f[ia]))
-                                logger.debug(mf, 'Position deviation: %s', opt.fun)
-                            else:
-                                logger.warn(mf, 'CNEO NUC constraint optimization failed!')
-                                logger.warn(mf, 'scipy.optimize.least_squares message: %s',
-                                            opt.message)
-                                logger.warn(mf, 'Lagrange multiplier of %s(%i) atom: %s' %
-                                            (mf.mol.atom_symbol(ia), ia, mf.f[ia]))
-                                logger.warn(mf, 'Position deviation: %s', opt.fun)
+                position_error = neo.cdft.update_lagrange_multipliers(
+                    mf, f, s1e, one_step=(diis_type==4 and cycle>=0))
 
         # For DIIS type 1, preserve original matrices
         if diis_type == 1:
@@ -934,7 +911,8 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1,
                 f_flat = None
             elif diis_type == 4:
                 fock_error = scf.diis.get_err_vec(s1e, dm, f, diis.Corth)
-                position_error = neo.cdft.get_position_error(mf, f, s1e) * mf.position_error_scale
+                if position_error is None:
+                    position_error = neo.cdft.get_position_error(mf, f, s1e)
                 error = numpy.concatenate((fock_error, position_error))
                 f_flat = lib.diis.DIIS.update(diis, f_flat, error)
             else:
@@ -984,27 +962,8 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1,
             else:
                 f0[t] = f[t]
 
-        if diis_type == 4:
-            neo.cdft.update_lagrange_multipliers(mf, f0, s1e, mf.constraint_max_cycle)
-        else:
-            for t, comp in mf.components.items():
-                if t.startswith('n'):
-                    ia = comp.mol.atom_index
-                    opt = neo.cdft.solve_constraint(comp, f0[t], s1e[t], mf.f[ia],
-                                                    jacobian_gap_tol=mf.constraint_jacobian_gap_tol)
-                    mf.f[ia] = opt.x
-                    if opt.success:
-                        logger.debug(mf, 'CNEO NUC constraint optimization succeeded.')
-                        logger.debug(mf, 'Lagrange multiplier of %s(%i) atom: %s' %
-                                     (mf.mol.atom_symbol(ia), ia, mf.f[ia]))
-                        logger.debug(mf, 'Position deviation: %s', opt.fun)
-                    else:
-                        logger.warn(mf, 'CNEO NUC constraint optimization failed!')
-                        logger.warn(mf, 'scipy.optimize.least_squares message: %s',
-                                    opt.message)
-                        logger.warn(mf, 'Lagrange multiplier of %s(%i) atom: %s' %
-                                    (mf.mol.atom_symbol(ia), ia, mf.f[ia]))
-                        logger.warn(mf, 'Position deviation: %s', opt.fun)
+        neo.cdft.update_lagrange_multipliers(
+            mf, f0, s1e, one_step=diis_type == 4)
 
         fock_add = mf.get_fock_add_cdft()
         for t in fock_add:
@@ -1171,13 +1130,10 @@ class HF(scf.hf.SCF):
     >>> mf.scf()
     -99.98104139461894
     '''
-    _keys = {'diis_type', 'diis_pos', 'constraint_max_cycle',
-             'position_error_scale', 'constraint_jacobian_gap_tol',
-             'constraint_line_search_min_step'}
+    _keys = {'diis_type', 'diis_pos'}
 
     def __init__(self, mol, unrestricted=False, diis_type=3,
-                 diis_pos='both', constraint_max_cycle=1,
-                 position_error_scale=1.0):
+                 diis_pos='both'):
         super().__init__(mol)
         # NOTE: unrestricted should be understood as "force unrestricted".
         # With unrestricted=False, each component will still be RHF/UHF depending on the spin
@@ -1212,10 +1168,6 @@ class HF(scf.hf.SCF):
             raise ValueError("diis_pos must be 'pre', 'post', or 'both'")
         self.diis_type = diis_type
         self.diis_pos = diis_pos
-        self.constraint_max_cycle = constraint_max_cycle
-        self.position_error_scale = position_error_scale
-        self.constraint_jacobian_gap_tol = 1e-14
-        self.constraint_line_search_min_step = 0.01
 
     # mf_elec and mf_nuc for backward compatibility
     @property
